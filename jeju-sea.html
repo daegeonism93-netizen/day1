@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>제주 바다 해돋이 3D</title>
+<style>
+  :root { --glass: rgba(10,18,34,.55); --line: rgba(255,255,255,.18); --text: #f4f6fb; --muted: #b6c0d6; --accent: #ffb347; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #0b1226; font-family: "Malgun Gothic", "Pretendard", sans-serif; color: var(--text); }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  canvas.drag { cursor: grabbing; }
+  .title { position: fixed; top: 14px; left: 16px; text-shadow: 0 1px 8px rgba(0,0,0,.55); pointer-events: none; }
+  .title h1 { font-size: clamp(1.1rem, 3.2vw, 1.6rem); }
+  .title p { font-size: .85rem; color: #e8edf8; margin-top: 2px; }
+  .panel { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(760px, calc(100% - 24px));
+    background: var(--glass); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; backdrop-filter: blur(10px); }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .row + .row { margin-top: 8px; }
+  .row label { font-size: .85rem; color: var(--muted); white-space: nowrap; min-width: 4.6em; }
+  .row input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  button { font: inherit; font-size: .9rem; font-weight: 700; color: #1a1205; background: var(--accent); border: 0; border-radius: 10px; padding: 7px 14px; cursor: pointer; }
+  button:hover { filter: brightness(1.08); }
+  .readout { font-family: Consolas, monospace; font-size: .85rem; color: #ffe3b3; white-space: nowrap; }
+  .hint { font-size: .75rem; color: var(--muted); margin-top: 8px; }
+  .msg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 1.05rem; line-height: 1.7; background: #0b1226; }
+  .msg.show { display: flex; }
+  @media (max-width: 560px) { .row label { min-width: 3.6em; } .panel { bottom: 8px; padding: 10px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="title">
+  <h1>🌅 제주 바다 해돋이 3D</h1>
+  <p>실제 DEM 지형 · 출렁이는 파도 · 바다에 비치는 태양</p>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <button id="play">⏸ 멈춤</button>
+    <label for="time">☀️ 태양 위치</label>
+    <input type="range" id="time" min="0" max="1000" value="0">
+    <span class="readout" id="sunInfo"></span>
+  </div>
+  <div class="row">
+    <label for="wave">🌊 파도 높이</label>
+    <input type="range" id="wave" min="0" max="200" value="100">
+    <label for="cam">🎥 카메라 높이</label>
+    <input type="range" id="cam" min="0" max="1000" value="30">
+    <span class="readout" id="camInfo"></span>
+  </div>
+  <p class="hint">화면을 마우스(손가락)로 끌면 주변을 둘러볼 수 있어요. 카메라 높이를 올리면 제주도 전체가 보입니다. 지형: AWS Terrain Tiles(DEM)</p>
+</div>
+
+<div class="msg" id="msg"></div>
+
+<script src="jeju-dem.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  const msg = document.getElementById('msg');
+  function fail(t) { msg.innerHTML = t; msg.classList.add('show'); }
+  if (!window.THREE) return fail('three.js 를 불러오지 못했어요.<br>인터넷 연결을 확인하고 새로고침해 주세요.');
+  if (!window.JEJU_DEM) return fail('jeju-dem.js (제주도 DEM 데이터)를 찾지 못했어요.<br>jeju-sea.html 과 같은 폴더에 있어야 합니다.');
+
+  const canvas = document.getElementById('c');
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); }
+  catch (e) { return fail('이 브라우저에서는 WebGL(3D)을 사용할 수 없어요.'); }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  const UNIT = 100;      // 3D 1칸 = 100 m
+  const VERT_EXAG = 1.3; // 높이 과장 배율
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(56, 1, 0.05, 9000);
+  camera.rotation.order = 'YXZ';
+
+  // ---------- 공통 uniform ----------
+  const NW = 6;
+  const WAVE_L = [1.6, 1.05, 0.72, 0.5, 0.36, 0.26];            // 파장 (칸) = 160 m ~ 26 m
+  const WAVE_ANG = [0.0, 0.35, -0.4, 0.8, -0.9, 1.3].map(a => a + 0.9);
+  const U = {
+    uSun:      { value: new THREE.Vector3(0, 0.1, -1) },
+    uTime:     { value: 0 },
+    uAmp:      { value: 1 },
+    uSteep:    { value: 0.45 },
+    uExposure: { value: 1 },
+    uFog:      { value: 0.0018 },
+    uDir:      { value: WAVE_ANG.map(a => new THREE.Vector2(Math.cos(a), Math.sin(a))) },
+    uK:        { value: WAVE_L.map(l => 2 * Math.PI / l) },
+    uL:        { value: WAVE_L.slice() },
+    uA:        { value: WAVE_L.map(l => l * 0.0055) },               // 진폭 (칸)
+    uW:        { value: WAVE_L.map(l => Math.sqrt(9.8 * 2 * Math.PI / (l * UNIT))) }, // 각속도 rad/s (심수파)
+  };
+
+  const COMMON = `
+    uniform vec3 uSun;
+    uniform float uExposure;
+    uniform float uFog;
+    vec3 sunTint(float el) { return mix(vec3(1.0, 0.50, 0.25), vec3(1.0, 0.96, 0.88), smoothstep(0.0, 0.30, el)); }
+    vec3 skyColor(vec3 d, bool disc) {
+      float el = uSun.y;
+      float warm = 1.0 - smoothstep(0.02, 0.45, el);
+      float y = max(d.y, 0.0);
+      vec3 zen = mix(vec3(0.16, 0.38, 0.82), vec3(0.20, 0.27, 0.52), warm);
+      vec3 hor = mix(vec3(0.70, 0.82, 0.93), vec3(0.96, 0.66, 0.50), warm);
+      vec3 col = mix(hor, zen, pow(y, 0.45));
+      float cs = max(dot(normalize(d), uSun), 0.0);
+      vec3 st = sunTint(el);
+      col += st * (0.30 * pow(cs, 5.0) * (0.5 + warm) + 0.55 * pow(cs, 48.0) + 1.2 * pow(cs, 500.0));
+      if (disc) col += st * 40.0 * smoothstep(0.99985, 0.99992, cs);
+      return col;
+    }
+    vec3 finish(vec3 c) { c = vec3(1.0) - exp(-c * uExposure); return pow(c, vec3(1.0 / 2.2)); }
+  `;
+
+  // ---------- 하늘 ----------
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(5000, 48, 24),
+    new THREE.ShaderMaterial({
+      uniforms: U, side: THREE.BackSide, depthWrite: false, depthTest: false,
+      vertexShader: `
+        varying vec3 vDir;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vDir = wp.xyz - cameraPosition;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }`,
+      fragmentShader: COMMON + `
+        varying vec3 vDir;
+        void main() { gl_FragColor = vec4(finish(skyColor(normalize(vDir), true)), 1.0); }`
+    })
+  );
+  sky.renderOrder = -10; sky.frustumCulled = false;
+  scene.add(sky);
+
+  // ---------- 제주도 지형 (DEM) ----------
+  const D = window.JEJU_DEM;
+  const bin = atob(D.data), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const raw = new Uint16Array(u8.buffer);
+  const cols = D.w, rows = D.h, sx = D.pixelM / UNIT;
+  const pos = new Float32Array(cols * rows * 3);
+  let maxH = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const i = r * cols + c, h = Math.max(raw[i] - D.offset, -60);
+    maxH = Math.max(maxH, h);
+    pos[i * 3]     = (c - cols / 2) * sx;            // 동(+x)
+    pos[i * 3 + 1] = h * VERT_EXAG / UNIT;           // 높이
+    pos[i * 3 + 2] = (r - rows / 2) * sx;            // 남(+z)  (북 = -z)
+  }
+  const idx = new Uint32Array((rows - 1) * (cols - 1) * 6);
+  let k = 0;
+  for (let r = 0; r < rows - 1; r++) for (let c = 0; c < cols - 1; c++) {
+    const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
+    idx[k++] = a; idx[k++] = d; idx[k++] = b; idx[k++] = b; idx[k++] = d; idx[k++] = e;
+  }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  tg.setIndex(new THREE.BufferAttribute(idx, 1));
+  tg.computeVertexNormals();
+  const terrain = new THREE.Mesh(tg, new THREE.ShaderMaterial({
+    uniforms: U,
+    vertexShader: `
+      varying vec3 vPos; varying vec3 vNormal;
+      void main() { vPos = position; vNormal = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: COMMON + `
+      varying vec3 vPos; varying vec3 vNormal;
+      void main() {
+        float hM = vPos.y * ${UNIT}.0 / ${VERT_EXAG.toFixed(2)};
+        vec3 sand = vec3(0.50, 0.45, 0.32), grass = vec3(0.18, 0.27, 0.09), forest = vec3(0.07, 0.15, 0.06);
+        vec3 shrub = vec3(0.22, 0.21, 0.13), rock = vec3(0.42, 0.39, 0.35);
+        vec3 c = mix(sand, grass, smoothstep(2.0, 25.0, hM));
+        c = mix(c, forest, smoothstep(80.0, 350.0, hM));
+        c = mix(c, shrub, smoothstep(700.0, 1100.0, hM));
+        c = mix(c, rock, smoothstep(1300.0, 1800.0, hM));
+        vec3 n = normalize(vNormal);
+        c = mix(c, rock * 0.8, 1.0 - smoothstep(0.25, 0.55, n.y));
+        float d = max(dot(n, uSun), 0.0);
+        float sunI = mix(0.35, 1.5, smoothstep(0.0, 0.4, uSun.y));
+        vec3 amb = skyColor(vec3(n.x, max(n.y, 0.25), n.z), false) * 0.45;
+        vec3 lit = c * (amb + sunTint(uSun.y) * sunI * d);
+        vec3 v = vPos - cameraPosition;
+        float f = 1.0 - exp(-length(v) * uFog);
+        vec3 fogCol = skyColor(normalize(vec3(v.x, 0.02, v.z)), false);
+        gl_FragColor = vec4(finish(mix(lit, fogCol, f)), 1.0);
+      }`
+  }));
+  terrain.frustumCulled = false;
+  scene.add(terrain);
+
+  // ---------- 바다 (Gerstner 파도 + 태양 반사) ----------
+  const WAVE_GLSL = `
+    uniform float uTime, uAmp, uSteep;
+    uniform vec2 uDir[${NW}];
+    uniform float uK[${NW}], uL[${NW}], uA[${NW}], uW[${NW}];
+  `;
+  const waterMat = new THREE.ShaderMaterial({
+    uniforms: U,
+    vertexShader: WAVE_GLSL + `
+      varying vec3 vWorld; varying vec2 vP;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vec2 p = wp.xz;
+        float dist = length(p - cameraPosition.xz);
+        float fade = 1.0 - smoothstep(10.0, 13.5, dist);
+        vec3 disp = vec3(0.0);
+        for (int i = 0; i < ${NW}; i++) {
+          float th = uK[i] * dot(uDir[i], p) - uW[i] * uTime;
+          float A = uA[i] * uAmp;
+          float hor = uSteep * uAmp / (${NW}.0 * uK[i]);
+          disp.xz += uDir[i] * (hor * cos(th));
+          disp.y += A * sin(th);
+        }
+        wp.xyz += disp * fade;
+        vWorld = wp.xyz; vP = p;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: COMMON + WAVE_GLSL + `
+      varying vec3 vWorld; varying vec2 vP;
+      void main() {
+        vec3 toCam = cameraPosition - vWorld;
+        float dist = length(toCam);
+        vec3 V = toCam / dist;
+        // 큰 파도의 기울기 (멀수록 작은 파도는 흐려지게)
+        vec2 g = vec2(0.0); float ny = 1.0; float hn = 0.0, hs = 0.0;
+        for (int i = 0; i < ${NW}; i++) {
+          float th = uK[i] * dot(uDir[i], vP) - uW[i] * uTime;
+          float A = uA[i] * uAmp;
+          float att = 1.0 / (1.0 + dist / (uL[i] * 25.0));
+          float c = cos(th), s = sin(th);
+          g += uDir[i] * (uK[i] * A * c * att);
+          ny -= (uSteep * uAmp / ${NW}.0) * s * att;
+          hn += A * s * att; hs += A;
+        }
+        hn /= max(hs, 1e-5);
+        // 잔물결 (반짝임용)
+        vec2 rg = vec2(0.0);
+        for (int j = 0; j < 4; j++) {
+          float fj = float(j);
+          vec2 dr = vec2(cos(1.1 + fj * 1.7), sin(1.1 + fj * 1.7));
+          float kr = 2.0 * 3.14159 / (0.045 + 0.02 * fj);
+          rg += dr * (0.055 * cos(kr * dot(dr, vP) + (1.6 + fj * 0.5) * uTime + fj * 2.0));
+        }
+        rg *= 1.0 / (1.0 + dist * 0.06) * clamp(uAmp * 1.2, 0.25, 1.5);
+        vec3 N = normalize(vec3(-g.x - rg.x, ny, -g.y - rg.y));
+        vec3 R = reflect(-V, N);
+        R.y = abs(R.y);
+        // 하늘 반사 + 프레넬
+        vec3 refl = skyColor(R, false);
+        float F = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
+        float el = uSun.y;
+        float light = 0.22 + 0.9 * sqrt(max(el, 0.0));
+        vec3 deep = vec3(0.012, 0.055, 0.095) * light;
+        vec3 shallow = vec3(0.0, 0.16, 0.19) * light * smoothstep(0.1, 0.9, hn);
+        vec3 col = mix(deep + shallow, refl, F);
+        // 태양의 반짝임(윤슬)
+        float sr = max(dot(R, uSun), 0.0);
+        vec3 st = sunTint(el);
+        col += st * (pow(sr, 900.0) * 28.0 + pow(sr, 120.0) * 1.1 + pow(sr, 22.0) * 0.12);
+        // 파도 마루의 하얀 거품
+        float foam = smoothstep(0.42, 0.78, hn) * smoothstep(0.0, 0.05, length(rg)) * 0.30;
+        col += foam * (0.35 + 0.9 * light);
+        // 안개
+        float f = 1.0 - exp(-dist * uFog * 1.4);
+        vec3 fogCol = skyColor(normalize(vec3(-V.x, 0.02, -V.z)), false);
+        gl_FragColor = vec4(finish(mix(col, fogCol, f)), 1.0);
+      }`
+  });
+  const SEG = 400, HALF = 14, STEP = (HALF * 2) / SEG;
+  const gNear = new THREE.PlaneGeometry(HALF * 2, HALF * 2, SEG, SEG); gNear.rotateX(-Math.PI / 2);
+  const oceanNear = new THREE.Mesh(gNear, waterMat); oceanNear.frustumCulled = false;
+  const gFar = new THREE.PlaneGeometry(8000, 8000, 1, 1); gFar.rotateX(-Math.PI / 2);
+  const oceanFar = new THREE.Mesh(gFar, waterMat); oceanFar.frustumCulled = false;
+  scene.add(oceanFar, oceanNear);
+
+  // ---------- 카메라 ----------
+  // 서귀포 앞바다(섬 중심에서 서쪽 12 km, 남쪽 23 km)에서 동쪽(해 뜨는 쪽)을 바라봄
+  const camPos = new THREE.Vector3(-120, 0.12, 230);
+  let yaw = 58, pitch = 6;    // 방위각(°, 북=0 동=90), 위아래 기울기(°)
+  function camHeightM(v) { return 1 + Math.pow(v / 1000, 2.2) * 24000; }   // 슬라이더 → 1 m ~ 24 km
+  function updateCamera() {
+    camera.position.copy(camPos);
+    camera.rotation.set(THREE.MathUtils.degToRad(pitch), -THREE.MathUtils.degToRad(yaw), 0);
+  }
+
+  // ---------- 태양 경로 (0~1) ----------
+  const AZ0 = 72, AZ1 = 92, EL0 = 0.8, EL1 = 24;
+  function setSun(t) {
+    const e = (1 - Math.cos(t * Math.PI)) / 2;
+    const az = AZ0 + (AZ1 - AZ0) * t, el = EL0 + (EL1 - EL0) * Math.pow(t, 0.85);
+    const a = THREE.MathUtils.degToRad(az), l = THREE.MathUtils.degToRad(el);
+    U.uSun.value.set(Math.sin(a) * Math.cos(l), Math.sin(l), -Math.cos(a) * Math.cos(l));
+    U.uExposure.value = 1.15 - 0.45 * Math.min(1, el / 14);      // 해가 높아질수록 노출을 낮춤
+    document.getElementById('sunInfo').textContent = `방위 ${az.toFixed(0)}° · 고도 ${el.toFixed(1)}°`;
+    return e;
+  }
+
+  // ---------- UI ----------
+  const $ = id => document.getElementById(id);
+  let playing = true, tNow = 0, dir = 1;
+  $('play').onclick = () => { playing = !playing; $('play').textContent = playing ? '⏸ 멈춤' : '▶ 재생'; };
+  $('time').oninput = e => { tNow = e.target.value / 1000; playing = false; $('play').textContent = '▶ 재생'; };
+  $('wave').oninput = e => { U.uAmp.value = e.target.value / 100; };
+  function applyCam() { const m = camHeightM(+$('cam').value); camPos.y = m / UNIT; $('camInfo').textContent = m < 1000 ? `${m.toFixed(0)} m` : `${(m / 1000).toFixed(1)} km`; }
+  $('cam').oninput = applyCam;
+
+  let dragging = false, lx = 0, ly = 0;
+  canvas.addEventListener('pointerdown', e => { dragging = true; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); canvas.classList.add('drag'); });
+  canvas.addEventListener('pointerup', () => { dragging = false; canvas.classList.remove('drag'); });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    yaw -= (e.clientX - lx) * 0.18; pitch = Math.max(-40, Math.min(70, pitch + (e.clientY - ly) * 0.12));
+    lx = e.clientX; ly = e.clientY;
+  });
+
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- 루프 ----------
+  const DURATION = 28;  // 해가 떠오르는 데 걸리는 시간(초)
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (playing) {
+      tNow += dir * dt / DURATION;
+      if (tNow >= 1) { tNow = 1; dir = -1; } else if (tNow <= 0) { tNow = 0; dir = 1; }
+      $('time').value = Math.round(tNow * 1000);
+    }
+    setSun(tNow);
+    U.uTime.value = now / 1000;
+    U.uFog.value = 0.0018 / (1 + camPos.y * 0.12);      // 높이 올라가면 안개를 줄여 섬이 또렷하게
+    updateCamera();
+    sky.position.copy(camera.position);
+    oceanFar.position.set(camera.position.x, -0.003, camera.position.z);
+    oceanNear.position.set(Math.round(camera.position.x / STEP) * STEP, 0, Math.round(camera.position.z / STEP) * STEP);
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  applyCam(); resize();
+  window.__jeju = { U, setT: t => { tNow = t; playing = false; }, camPos, set yaw(v) { yaw = v; }, set pitch(v) { pitch = v; }, maxH };
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

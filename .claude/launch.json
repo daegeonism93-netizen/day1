@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "day1-static",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Users\\user\\AppData\\Local\\Temp\\claude\\e694eb2047d1c64a\\2620c91e-ab49-4277-a162-65cc93143c1e\\scratchpad\\serve.ps1"],
+      "port": 8765
+    }
+  ]
+}
