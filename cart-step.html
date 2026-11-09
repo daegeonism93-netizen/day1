@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>과일 장바구니 계산</title>
+<style>
+  :root {
+    --bg: #fdf8f1; --panel: #ffffff; --text: #2a2420; --muted: #7a6f66; --border: #eee3d6;
+    --code-bg: #1e2433; --code-text: #d7deea; --code-dim: #6c7690;
+    --accent: #ff7a00; --accent-soft: #fff1e3; --hl: rgba(255,122,0,.28);
+    --shelf: #f6ecdf; --green: #16a34a; --green-soft: #e3f6e9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15130f; --panel: #1f1c18; --text: #f0ebe4; --muted: #a89e93; --border: #332e27;
+      --code-bg: #0f121a; --accent-soft: #3a2a1a; --shelf: #2a251f; --green-soft: #173222;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Malgun Gothic", "Pretendard", sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 16px; font-size: .95rem; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .panel h2 { font-size: .85rem; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+  .stack > * + * { margin-top: 16px; }
+
+  /* 코드 */
+  pre.code { background: var(--code-bg); color: var(--code-text); border-radius: 10px; padding: 12px 0; font-family: Consolas, "D2Coding", monospace; font-size: .88rem; overflow-x: auto; }
+  .line { display: flex; padding: 2px 12px; border-left: 4px solid transparent; white-space: pre; transition: background .2s; }
+  .line .no { color: var(--code-dim); width: 2em; flex: none; text-align: right; margin-right: 14px; user-select: none; }
+  .line.active { background: var(--hl); border-left-color: var(--accent); }
+  .kw { color: #c792ea; } .num { color: #f78c6c; } .fn { color: #82aaff; } .str { color: #c3e88d; } .cm { color: var(--code-dim); }
+
+  .explain { margin-top: 14px; background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; min-height: 80px; }
+  .explain b { color: var(--accent); }
+  .explain .calc { font-family: Consolas, monospace; font-size: 1.1rem; margin-top: 6px; font-weight: 700; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  .speed { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .9rem; }
+  .progress { flex-basis: 100%; height: 6px; background: var(--shelf); border-radius: 3px; overflow: hidden; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .stepinfo { color: var(--muted); font-size: .85rem; }
+
+  /* 진열대 (배열) */
+  .shelf { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .item { background: var(--shelf); border: 2px solid transparent; border-radius: 12px; padding: 10px; text-align: center; position: relative; transition: transform .25s, border-color .25s, opacity .25s; }
+  .item .idx { position: absolute; top: 6px; left: 8px; font-family: Consolas, monospace; font-size: .75rem; color: var(--muted); }
+  .item .emoji { font-size: 2.4rem; line-height: 1.2; }
+  .item .nm { font-weight: 700; }
+  .item .meta { font-size: .8rem; color: var(--muted); font-family: Consolas, monospace; }
+  .item.now { border-color: var(--accent); transform: translateY(-4px) scale(1.04); background: var(--accent-soft); }
+  .item.done { opacity: .55; }
+  .item.done::after { content: "✔"; position: absolute; top: 4px; right: 8px; color: var(--green); font-weight: 700; }
+  .shelf.hidden .item { opacity: 0; transform: scale(.8); }
+
+  /* 장바구니 */
+  .cart { min-height: 150px; background: var(--shelf); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .cart .empty { color: var(--muted); text-align: center; margin: auto; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row .fruits { display: flex; flex-wrap: wrap; gap: 2px; font-size: 1.35rem; flex: 1; min-width: 0; }
+  .row .fruits span { display: inline-block; }
+  .row .fruits span.drop { animation: drop .45s cubic-bezier(.3,1.5,.6,1) both; }
+  @keyframes drop { from { transform: translateY(-50px) scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+  .row .cnt { font-family: Consolas, monospace; font-size: .85rem; color: var(--muted); white-space: nowrap; }
+  .basket { text-align: center; font-size: 2rem; margin-top: 2px; }
+
+  /* 변수 */
+  .vars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .var { border: 1px solid var(--border); border-radius: 10px; padding: 8px; text-align: center; transition: transform .2s, border-color .2s; min-width: 0; }
+  .var .name { font-family: Consolas, monospace; color: var(--muted); font-size: .85rem; }
+  .var .val { font-size: 1.15rem; font-weight: 700; font-family: Consolas, monospace; overflow-wrap: anywhere; }
+  .var.changed { border-color: var(--accent); transform: scale(1.05); }
+  .var.empty .val { color: var(--muted); font-size: .9rem; font-weight: 400; }
+
+  /* 영수증 */
+  .receipt { font-family: Consolas, "D2Coding", monospace; background: #fffdf8; color: #2a2420; border-radius: 6px; padding: 14px 16px; box-shadow: 0 2px 10px rgba(0,0,0,.08); border-top: 6px dashed #e6d8c3; }
+  .receipt .title { text-align: center; font-weight: 700; margin-bottom: 8px; }
+  .receipt .r { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .receipt .r.new { animation: flash .8s; }
+  @keyframes flash { from { background: #ffe2c2; } to { background: transparent; } }
+  .receipt .sum { border-top: 2px solid #2a2420; margin-top: 8px; padding-top: 8px; font-size: 1.25rem; font-weight: 700; }
+  .receipt .sum .v { color: var(--accent); }
+  .receipt .none { color: #998; text-align: center; }
+
+  .console { background: var(--code-bg); color: #a6e3a1; font-family: Consolas, monospace; border-radius: 10px; padding: 10px 12px; min-height: 70px; font-size: .9rem; }
+  .console div::before { content: "> "; color: var(--code-dim); }
+
+  .confetti { position: fixed; top: -20px; font-size: 1.6rem; pointer-events: none; animation: fall linear forwards; z-index: 50; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(540deg); } }
+  code { font-family: Consolas, monospace; background: var(--shelf); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛒 과일 장바구니로 배우는 배열 · 반복문</h1>
+  <p class="sub"><b>다음 ▶</b> 을 누르거나 <b>자동 재생</b>을 켜서 과일이 장바구니에 담기고 가격이 계산되는 과정을 보세요. (키보드 → ← 도 됩니다)</p>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>📜 실행 중인 코드</h2>
+      <pre class="code" id="code"></pre>
+      <div class="explain" id="explain"></div>
+      <div class="controls">
+        <button id="reset">⏮ 처음</button>
+        <button id="prev">◀ 이전</button>
+        <button id="next" class="primary">다음 ▶</button>
+        <button id="play">▶ 자동 재생</button>
+        <label class="speed">속도 <input type="range" id="speed" min="1" max="10" value="4"></label>
+        <div class="progress"><div id="bar"></div></div>
+        <span class="stepinfo" id="stepinfo"></span>
+      </div>
+      <div style="margin-top:16px">
+        <h2>🖥️ console.log 출력</h2>
+        <div class="console" id="console"></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="panel">
+        <h2>🏪 과일 진열대 = 배열 cart (왼쪽 위 [ ] 숫자는 인덱스)</h2>
+        <div class="shelf" id="shelf"></div>
+      </div>
+      <div class="panel">
+        <h2>📦 변수</h2>
+        <div class="vars" id="vars"></div>
+      </div>
+      <div class="panel">
+        <h2>🧺 내 장바구니</h2>
+        <div class="cart" id="cart"></div>
+      </div>
+      <div class="panel">
+        <h2>🧾 영수증</h2>
+        <div class="receipt" id="receipt"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---------- 데이터 ----------
+const CART = [
+  { name: '사과', emoji: '🍎', price: 100,   count: 10 },
+  { name: '배',   emoji: '🍐', price: 1000,  count: 5 },
+  { name: '귤',   emoji: '🍊', price: 10000, count: 10 },
+];
+const won = n => n.toLocaleString('ko-KR') + '원';
+
+// ---------- 코드 ----------
+const CODE = [
+  '<span class="kw">const</span> cart = [',
+  '  { name: <span class="str">\'사과\'</span>, price: <span class="num">100</span>,   count: <span class="num">10</span> },',
+  '  { name: <span class="str">\'배\'</span>,   price: <span class="num">1000</span>,  count: <span class="num">5</span>  },',
+  '  { name: <span class="str">\'귤\'</span>,   price: <span class="num">10000</span>, count: <span class="num">10</span> },',
+  '];',
+  '<span class="kw">let</span> total = <span class="num">0</span>;',
+  '<span class="kw">for</span> (<span class="kw">const</span> item <span class="kw">of</span> cart) {',
+  '  <span class="kw">const</span> subtotal = item.price * item.count;',
+  '  total += subtotal;',
+  '  <span class="fn">console.log</span>(<span class="str">`${item.name}: ${subtotal}원`</span>);',
+  '}',
+  '<span class="fn">console.log</span>(<span class="str">`총 구매가격: ${total}원`</span>);',
+];
+document.getElementById('code').innerHTML = CODE.map((c, i) =>
+  `<div class="line"><span class="no">${i + 1}</span><span>${c}</span></div>`).join('');
+
+// ---------- 단계(스냅샷) ----------
+const steps = [];
+let st = { shelf: false, total: undefined, item: undefined, subtotal: undefined, cur: -1, done: -1, inCart: -1, receipt: [], out: [] };
+function push(lines, text, calc, extra = {}) {
+  steps.push({ ...st, receipt: [...st.receipt], out: [...st.out], lines, text, calc, changed: [], ...extra });
+}
+
+push([], '과일 가게에 왔어요! <b>다음 ▶</b> 을 눌러 코드를 한 줄씩 실행해 보세요.', '');
+st.shelf = true;
+push([0,1,2,3,4], '<b>배열 cart</b> 를 만듭니다. 과일 3종류가 진열대에 <b>순서대로</b> 놓여요. 각 과일은 이름(name)·가격(price)·개수(count)를 가진 <b>객체 { }</b> 입니다.',
+     'cart[0] = 사과, cart[1] = 배, cart[2] = 귤');
+st.total = 0;
+push([5], '총 구매가격을 담을 변수 <b>total</b> 을 0원으로 준비합니다. 계산기를 0으로 리셋하는 것과 같아요.', 'total = 0', { changed: ['total'] });
+
+CART.forEach((it, i) => {
+  st.cur = i; st.item = `${it.emoji} ${it.name}`; st.subtotal = undefined;
+  push([6], `반복 <b>${i + 1}회차</b>: 진열대 <b>${i}번</b> 칸에서 <b>${it.name}</b> 를 꺼내 <code>item</code> 에 담습니다.`,
+       `item = cart[${i}] → { name: '${it.name}', price: ${it.price}, count: ${it.count} }`, { changed: ['item'] });
+  st.subtotal = it.price * it.count; st.inCart = i;
+  push([7], `${it.emoji} ${it.name} <b>${it.count}개</b>를 장바구니에 담고, <b>가격 × 개수</b>로 소계를 구합니다.`,
+       `subtotal = ${it.price} × ${it.count} → ${st.subtotal}`, { changed: ['subtotal'], dropIdx: i });
+  const before = st.total; st.total += st.subtotal;
+  st.receipt.push({ label: `${it.emoji} ${it.name} ${won(it.price)} × ${it.count}`, value: st.subtotal });
+  push([8], `소계를 total 에 <b>누적</b>합니다. 영수증에 한 줄이 추가돼요.`,
+       `total = ${before} + ${st.subtotal} → ${st.total}`, { changed: ['total'], countFrom: before });
+  st.out.push(`${it.name}: ${st.subtotal}원`); st.done = i;
+  push([9], `${it.name} 계산 결과를 콘솔에 출력합니다.`, `console.log("${it.name}: ${st.subtotal}원")`);
+});
+st.cur = -1;
+push([10], '<b>진열대의 과일 3종류를 모두 꺼냈으므로</b> 반복문을 빠져나옵니다.', '반복 횟수: 3 회 (cart.length)');
+st.out.push(`총 구매가격: ${st.total}원`);
+push([11], `계산 끝! 총 구매가격은 <b>${won(st.total)}</b> 입니다 🎉`, `1,000 + 5,000 + 100,000 = ${st.total.toLocaleString()}`, { finale: true });
+
+// ---------- 그리기 ----------
+const $ = id => document.getElementById(id);
+$('shelf').innerHTML = CART.map((it, i) => `<div class="item"><span class="idx">[${i}]</span>
+  <div class="emoji">${it.emoji}</div><div class="nm">${it.name}</div>
+  <div class="meta">${won(it.price)} · ${it.count}개</div></div>`).join('');
+const items = $('shelf').children, lines = document.querySelectorAll('.line');
+let cur = 0, last = 0, countAnim = null;
+
+function render() {
+  const s = steps[cur], forward = cur > last;
+  lines.forEach((l, i) => l.classList.toggle('active', s.lines.includes(i)));
+  $('explain').innerHTML = `<div>${s.text}</div>` + (s.calc ? `<div class="calc">${s.calc}</div>` : '');
+
+  $('shelf').classList.toggle('hidden', !s.shelf);
+  [...items].forEach((el, i) => { el.classList.toggle('now', i === s.cur); el.classList.toggle('done', i <= s.done && i !== s.cur); });
+
+  $('vars').innerHTML = [['total', s.total === undefined ? undefined : won(s.total)], ['item', s.item], ['subtotal', s.subtotal === undefined ? undefined : won(s.subtotal)]]
+    .map(([n, v]) => `<div class="var ${v === undefined ? 'empty' : ''} ${s.changed.includes(n) ? 'changed' : ''}">
+      <div class="name">${n}</div><div class="val">${v === undefined ? '아직 없음' : v}</div></div>`).join('');
+
+  // 장바구니
+  if (s.inCart < 0) $('cart').innerHTML = '<div class="empty">비어 있어요 🫙</div>';
+  else $('cart').innerHTML = CART.slice(0, s.inCart + 1).map((it, i) => {
+    const anim = forward && s.dropIdx === i;
+    const fruits = Array.from({ length: it.count }, (_, k) =>
+      `<span class="${anim ? 'drop' : ''}" style="animation-delay:${k * 90}ms">${it.emoji}</span>`).join('');
+    return `<div class="row"><div class="fruits">${fruits}</div><div class="cnt">× ${it.count}</div></div>`;
+  }).join('') + '<div class="basket">🧺</div>';
+
+  // 영수증
+  const rows = s.receipt.map((r, i) => `<div class="r ${forward && i === s.receipt.length - 1 && s.countFrom !== undefined ? 'new' : ''}"><span>${r.label}</span><span>${won(r.value)}</span></div>`).join('');
+  $('receipt').innerHTML = `<div class="title">🍑 과일가게 영수증</div>${rows || '<div class="none">아직 계산한 과일이 없어요</div>'}
+    <div class="r sum"><span>합계</span><span class="v" id="sumv">${s.total === undefined ? '-' : won(s.total)}</span></div>`;
+  cancelAnimationFrame(countAnim);
+  if (forward && s.countFrom !== undefined) countUp(s.countFrom, s.total);
+
+  $('console').innerHTML = s.out.map(o => `<div>${o}</div>`).join('');
+  $('bar').style.width = (cur / (steps.length - 1) * 100) + '%';
+  $('stepinfo').textContent = `단계 ${cur} / ${steps.length - 1}`;
+  $('prev').disabled = $('reset').disabled = cur === 0;
+  $('next').disabled = cur === steps.length - 1;
+  if (forward && s.finale) confetti();
+  last = cur;
+}
+
+function countUp(from, to) {
+  const t0 = performance.now(), dur = 700;
+  const f = t => { const p = Math.min(1, (t - t0) / dur), v = Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)));
+    const el = $('sumv'); if (el) el.textContent = won(v); if (p < 1) countAnim = requestAnimationFrame(f); };
+  countAnim = requestAnimationFrame(f);
+}
+function confetti() {
+  const set = ['🍎', '🍐', '🍊', '🎉', '💰', '✨'];
+  for (let i = 0; i < 40; i++) {
+    const c = document.createElement('div'); c.className = 'confetti';
+    c.textContent = set[i % set.length]; c.style.left = Math.random() * 100 + 'vw';
+    c.style.animationDuration = 2 + Math.random() * 2 + 's'; c.style.animationDelay = Math.random() * .6 + 's';
+    document.body.appendChild(c); setTimeout(() => c.remove(), 5000);
+  }
+}
+
+// ---------- 조작 ----------
+function go(n) { cur = Math.max(0, Math.min(steps.length - 1, n)); render(); if (cur === steps.length - 1) stop(); }
+let timer = null;
+const playBtn = $('play');
+const delay = () => 2600 - $('speed').value * 200;
+function tick() { go(cur + 1); if (timer) timer = setTimeout(tick, delay()); }
+function stop() { clearTimeout(timer); timer = null; playBtn.textContent = '▶ 자동 재생'; }
+function play() { if (cur === steps.length - 1) go(0); playBtn.textContent = '⏸ 멈춤'; timer = setTimeout(tick, delay()); }
+playBtn.onclick = () => timer ? stop() : play();
+$('next').onclick = () => { stop(); go(cur + 1); };
+$('prev').onclick = () => { stop(); go(cur - 1); };
+$('reset').onclick = () => { stop(); go(0); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { stop(); go(cur + 1); }
+  if (e.key === 'ArrowLeft') { stop(); go(cur - 1); }
+});
+render();
+</script>
+</body>
+</html>

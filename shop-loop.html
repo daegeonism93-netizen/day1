@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>장바구니 반복문 실행기</title>
+<style>
+  :root {
+    --bg1: #0b0820; --bg2: #1a0b3a; --bg3: #08243a;
+    --glass: rgba(255,255,255,.06); --glass-b: rgba(255,255,255,.14);
+    --text: #f2efff; --muted: #a9a3c9;
+    --pink: #ff3fa4; --cyan: #29e7ff; --yellow: #ffd23f; --green: #3dff9a; --red: #ff4d5e; --purple: #a46bff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Malgun Gothic", "Pretendard", sans-serif; color: var(--text); min-height: 100vh; overflow-x: hidden;
+    background: linear-gradient(135deg, var(--bg1), var(--bg2), var(--bg3), var(--bg1));
+    background-size: 400% 400%; animation: bgmove 18s ease infinite;
+  }
+  @keyframes bgmove { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .stars i { position: absolute; width: 2px; height: 2px; background: #fff; border-radius: 50%; animation: twinkle 3s infinite; }
+  @keyframes twinkle { 0%,100% { opacity: .15; } 50% { opacity: 1; } }
+
+  .wrap { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 18px 16px 48px; }
+  h1 { font-size: clamp(1.3rem, 3.2vw, 2rem); font-weight: 800; margin-bottom: 4px;
+    background: linear-gradient(90deg, var(--pink), var(--yellow), var(--cyan), var(--purple), var(--pink));
+    background-size: 300% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 6s linear infinite; }
+  @keyframes shine { to { background-position: 300% center; } }
+  .sub { color: var(--muted); margin-bottom: 12px; font-size: .95rem; }
+
+  /* 컨트롤 바 */
+  .bar { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; margin-bottom: 14px;
+    background: rgba(15,10,40,.85); border: 1px solid var(--glass-b); border-radius: 14px; backdrop-filter: blur(10px); }
+  .btn { font: inherit; border: 1px solid var(--glass-b); background: var(--glass); color: var(--text); padding: 8px 14px; border-radius: 10px; cursor: pointer; transition: all .2s; }
+  .btn:hover:not(:disabled) { border-color: var(--cyan); box-shadow: 0 0 12px rgba(41,231,255,.4); }
+  .btn.primary { background: linear-gradient(90deg, var(--pink), var(--purple)); border: none; font-weight: 700; box-shadow: 0 0 16px rgba(255,63,164,.5); }
+  .btn:disabled { opacity: .35; cursor: default; box-shadow: none; }
+  select { font: inherit; background: #1d1640; color: var(--text); border: 1px solid var(--glass-b); border-radius: 8px; padding: 6px 8px; }
+  .prog { flex: 1; min-width: 140px; height: 8px; background: rgba(255,255,255,.08); border-radius: 4px; overflow: hidden; }
+  .prog div { height: 100%; width: 0; background: linear-gradient(90deg, var(--pink), var(--cyan)); box-shadow: 0 0 10px var(--pink); transition: width .15s; }
+  .stepinfo { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .side-title { font-size: 1.05rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .side-title .pill { font-size: .72rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+  .pill.l { background: rgba(255,210,63,.18); color: var(--yellow); border: 1px solid rgba(255,210,63,.4); }
+  .pill.r { background: rgba(41,231,255,.15); color: var(--cyan); border: 1px solid rgba(41,231,255,.4); }
+  .panel { background: var(--glass); border: 1px solid var(--glass-b); border-radius: 16px; padding: 14px; backdrop-filter: blur(10px); }
+  .panel h2 { font-size: .8rem; color: var(--muted); font-weight: 700; margin-bottom: 10px; letter-spacing: .03em; }
+  .col > * + * { margin-top: 14px; }
+
+  /* ===== 왼쪽: 쇼핑 ===== */
+  .shelf { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; }
+  .tile { position: relative; aspect-ratio: 1; border-radius: 8px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; transition: transform .2s, background .2s, opacity .2s; }
+  .tile .e { font-size: clamp(.9rem, 2.2vw, 1.35rem); line-height: 1; }
+  .tile .n { font-size: .55rem; color: var(--muted); font-family: Consolas, monospace; margin-top: 2px; }
+  .tile.now { background: var(--pink); border-color: #fff; transform: scale(1.25); z-index: 2; box-shadow: 0 0 20px var(--pink); }
+  .tile.now .n { color: #fff; }
+  .tile.done { opacity: .35; }
+  .tile.done::after { content: "✔"; position: absolute; right: 2px; top: 0; font-size: .6rem; color: var(--green); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: .75rem; color: var(--muted); margin-top: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; background: var(--c); }
+
+  .scanner { display: flex; align-items: center; gap: 14px; min-height: 92px; }
+  .scanner .big { font-size: 3.2rem; width: 76px; text-align: center; filter: drop-shadow(0 0 12px rgba(255,255,255,.35)); }
+  .scanner .big.pop { animation: popin .45s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes popin { from { transform: scale(.3) rotate(-15deg); opacity: 0; } }
+  .scanner .info { flex: 1; min-width: 0; }
+  .scanner .nm { font-size: 1.2rem; font-weight: 800; }
+  .scanner .eq { font-family: Consolas, monospace; font-size: 1.05rem; margin-top: 4px; }
+  .scanner .eq .p { color: var(--yellow); } .scanner .eq .a { color: var(--cyan); } .scanner .eq .s { color: var(--green); font-weight: 800; }
+  .scanner .idle { color: var(--muted); }
+  .beam { height: 3px; border-radius: 2px; background: var(--red); box-shadow: 0 0 10px var(--red); opacity: 0; }
+  .beam.on { animation: beam .6s; }
+  @keyframes beam { 0% { opacity: 1; transform: scaleX(.1); } 60% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; } }
+
+  .cartlist { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-right: 4px; }
+  .cartlist .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+  .crow { display: grid; grid-template-columns: 2.2em 1.6em minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 5px 8px; border-radius: 8px; background: rgba(255,255,255,.05); font-size: .9rem; }
+  .crow .no { font-family: Consolas, monospace; color: var(--muted); font-size: .75rem; }
+  .crow .calc { color: var(--muted); font-family: Consolas, monospace; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crow .sub { color: var(--green); font-family: Consolas, monospace; font-weight: 700; margin: 0; }
+  .crow.new { animation: rowin .5s; }
+  @keyframes rowin { from { background: rgba(61,255,154,.35); transform: translateX(-12px); } }
+  .total { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 2px dashed rgba(255,255,255,.2); flex-wrap: wrap; }
+  .total .cnt { color: var(--muted); }
+  .total .cnt b { color: var(--text); font-size: 1.2rem; }
+  .total .v { font-family: Consolas, monospace; font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 900; color: var(--green); text-shadow: 0 0 10px var(--green), 0 0 28px rgba(61,255,154,.5); }
+  .total .v.bump { animation: bump .45s; }
+  @keyframes bump { 40% { transform: scale(1.18); } }
+
+  /* ===== 오른쪽: 로직 ===== */
+  .loopbox { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; }
+  .ring { position: relative; width: 104px; height: 104px; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .t { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: Consolas, monospace; }
+  .ring .t b { font-size: 1.6rem; color: var(--pink); text-shadow: 0 0 10px var(--pink); line-height: 1; }
+  .ring .t span { font-size: .75rem; color: var(--muted); }
+  .say { border-radius: 14px; padding: 12px 14px; min-height: 96px; background: linear-gradient(135deg, rgba(164,107,255,.2), rgba(41,231,255,.1)); border: 1px solid rgba(164,107,255,.4); font-size: .98rem; }
+  .say b { color: var(--yellow); }
+  .say .calc { font-family: Consolas, monospace; font-weight: 700; color: var(--cyan); margin-top: 6px; font-size: 1.05rem; overflow-wrap: anywhere; }
+  .hint { margin-top: 10px; padding: 8px 12px; border-radius: 10px; background: rgba(255,210,63,.14); border: 1px dashed rgba(255,210,63,.5); color: var(--yellow); font-size: .9rem; display: none; }
+  .hint.on { display: block; animation: popin .4s; }
+
+  pre.code { background: rgba(0,0,0,.45); border-radius: 12px; padding: 10px 0; font-family: Consolas, "D2Coding", monospace; font-size: .86rem; overflow-x: auto; border: 1px solid rgba(255,255,255,.08); }
+  .line { display: flex; padding: 2px 12px; border-left: 4px solid transparent; white-space: pre; transition: background .15s; }
+  .line .no { color: #5d5885; width: 2em; flex: none; text-align: right; margin-right: 12px; user-select: none; }
+  .line.active { background: linear-gradient(90deg, rgba(255,63,164,.4), rgba(255,63,164,0)); border-left-color: var(--pink); }
+  .kw { color: #c792ea; } .num { color: #f78c6c; } .str { color: #c3e88d; } .cm { color: #6f6a99; } .fn { color: #82aaff; }
+
+  .flow svg { width: 100%; max-width: 440px; display: block; margin: 0 auto; }
+  .flow .node rect, .flow .node polygon { fill: rgba(255,255,255,.06); stroke: rgba(255,255,255,.3); stroke-width: 1.5; transition: all .2s; }
+  .flow .node text { fill: var(--text); font-size: 12px; font-family: "Malgun Gothic", sans-serif; text-anchor: middle; dominant-baseline: middle; }
+  .flow .node.on rect, .flow .node.on polygon { fill: var(--pink); stroke: #fff; filter: drop-shadow(0 0 8px var(--pink)); }
+  .flow .node.on text { font-weight: 700; }
+  .flow .arrow { stroke: rgba(255,255,255,.35); stroke-width: 1.6; fill: none; }
+  .flow .arrow.on { stroke: var(--yellow); stroke-width: 2.4; stroke-dasharray: 6 5; animation: dash .6s linear infinite; filter: drop-shadow(0 0 4px var(--yellow)); }
+  @keyframes dash { to { stroke-dashoffset: -22; } }
+  .flow .lbl { fill: var(--muted); font-size: 11px; font-family: "Malgun Gothic", sans-serif; }
+  .flow .lbl.loop { fill: var(--yellow); font-weight: 700; }
+
+  .vars { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .var { border: 1px solid var(--glass-b); border-radius: 10px; padding: 8px; text-align: center; min-width: 0; transition: border-color .2s, box-shadow .2s; }
+  .var .k { font-family: Consolas, monospace; color: var(--muted); font-size: .8rem; }
+  .var .v { font-family: Consolas, monospace; font-weight: 800; font-size: 1rem; overflow-wrap: anywhere; }
+  .var.ch { border-color: var(--yellow); box-shadow: 0 0 14px rgba(255,210,63,.45); }
+  .var.empty .v { color: var(--muted); font-weight: 400; font-size: .85rem; }
+
+  .console { background: rgba(0,0,0,.5); color: var(--green); font-family: Consolas, monospace; border-radius: 10px; padding: 8px 12px; min-height: 38px; }
+  .console div::before { content: "> "; color: #5d5885; }
+
+  .fly { position: fixed; z-index: 60; font-size: 2rem; pointer-events: none; transition: transform .55s cubic-bezier(.5,-.4,.4,1.2), opacity .2s .45s; filter: drop-shadow(0 0 10px #fff); }
+  .emo { position: fixed; z-index: 55; font-size: 1.6rem; pointer-events: none; animation: fall linear forwards; top: -30px; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(600deg); } }
+  code { font-family: Consolas, monospace; background: rgba(255,255,255,.1); padding: 1px 6px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+<div class="wrap">
+  <h1>🛒 상품 50개로 보는 반복문 — 장바구니 계산기</h1>
+  <p class="sub">왼쪽은 <b>마트에서 일어나는 일</b>, 오른쪽은 <b>그때 컴퓨터 속 코드가 하는 일</b>입니다. 처음 3개는 천천히, 그다음부터는 빠르게 반복해요.</p>
+
+  <div class="bar">
+    <button class="btn" id="reset">⏮ 처음</button>
+    <button class="btn" id="prev">◀ 이전</button>
+    <button class="btn primary" id="play">▶ 자동 재생</button>
+    <button class="btn" id="next">다음 ▶</button>
+    <button class="btn" id="end">⏭ 끝까지</button>
+    <label class="stepinfo">속도
+      <select id="speed"><option value="0.5">0.5배</option><option value="1" selected>1배</option><option value="2">2배</option><option value="4">4배</option></select>
+    </label>
+    <div class="prog"><div id="bar"></div></div>
+    <span class="stepinfo" id="stepinfo"></span>
+  </div>
+
+  <div class="grid">
+    <!-- ================= 왼쪽: 장바구니 ================= -->
+    <div class="col">
+      <div class="side-title">🏪 마트에서는… <span class="pill l">눈에 보이는 세상</span></div>
+      <div class="panel">
+        <h2>🧱 진열대 = 배열 data (상품 50개, 번호는 0 ~ 49)</h2>
+        <div class="shelf" id="shelf"></div>
+        <div class="legend">
+          <span style="--c: var(--pink)">지금 계산 중</span>
+          <span style="--c: rgba(255,255,255,.35)">계산 끝 ✔</span>
+          <span style="--c: rgba(255,255,255,.12)">아직 대기</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>📟 계산대 스캐너</h2>
+        <div class="scanner" id="scanner"></div>
+        <div class="beam" id="beam"></div>
+      </div>
+      <div class="panel">
+        <h2>🧺 내 장바구니</h2>
+        <div class="cartlist" id="cartlist"></div>
+        <div class="total">
+          <div class="cnt">담은 상품 <b id="cnt">0</b> / 50</div>
+          <div class="v" id="total">0원</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 오른쪽: 로직 ================= -->
+    <div class="col">
+      <div class="side-title">💻 컴퓨터 속에서는… <span class="pill r">프로그램의 로직</span></div>
+      <div class="panel">
+        <div class="loopbox">
+          <div class="ring">
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" stroke="rgba(255,255,255,.1)" stroke-width="9" fill="none"/>
+              <circle id="ringfg" cx="50" cy="50" r="42" stroke="url(#rg)" stroke-width="9" fill="none" stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+              <defs><linearGradient id="rg"><stop offset="0" stop-color="#ff3fa4"/><stop offset="1" stop-color="#29e7ff"/></linearGradient></defs>
+            </svg>
+            <div class="t"><b id="loopn">0</b><span>/ 50 회</span></div>
+          </div>
+          <div>
+            <div class="say" id="say"></div>
+            <div class="hint" id="hint"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>📜 코드 (지금 실행 중인 줄이 빛나요)</h2>
+        <pre class="code" id="code"></pre>
+      </div>
+      <div class="panel flow">
+        <h2>🔀 흐름도 — 반복문은 이렇게 돌아요</h2>
+        <svg viewBox="0 0 360 330" id="flow">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,.6)"/></marker>
+            <marker id="ahy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffd23f"/></marker>
+          </defs>
+          <g class="node" data-n="A"><rect x="50" y="6" width="170" height="34" rx="8"/><text x="135" y="23">① sum = 0 으로 시작</text></g>
+          <path class="arrow" data-a="AB" d="M135,40 V62" marker-end="url(#ah)"/>
+          <g class="node" data-n="B"><polygon points="135,64 225,96 135,128 45,96"/><text x="135" y="96">② 남은 상품 있어?</text></g>
+          <path class="arrow" data-a="BC" d="M135,128 V150" marker-end="url(#ah)"/>
+          <text class="lbl" x="142" y="143">예</text>
+          <g class="node" data-n="C"><rect x="50" y="152" width="170" height="34" rx="8"/><text x="135" y="169">③ i = 다음 상품 꺼내기</text></g>
+          <path class="arrow" data-a="CD" d="M135,186 V206" marker-end="url(#ah)"/>
+          <g class="node" data-n="D"><rect x="50" y="208" width="170" height="34" rx="8"/><text x="135" y="225">④ 가격 × 개수 계산</text></g>
+          <path class="arrow" data-a="DE" d="M135,242 V262" marker-end="url(#ah)"/>
+          <g class="node" data-n="E"><rect x="50" y="264" width="170" height="34" rx="8"/><text x="135" y="281">⑤ sum 에 더하기</text></g>
+          <path class="arrow" data-a="EB" d="M50,281 H18 V96 H43" marker-end="url(#ah)"/>
+          <text class="lbl loop" x="8" y="200" transform="rotate(-90 8 200)" text-anchor="middle">🔁 다시 ②로</text>
+          <path class="arrow" data-a="BF" d="M225,96 H252" marker-end="url(#ah)"/>
+          <text class="lbl" x="228" y="88">아니오</text>
+          <g class="node" data-n="F"><rect x="254" y="79" width="100" height="34" rx="8"/><text x="304" y="96">⑥ 출력 · 끝!</text></g>
+        </svg>
+      </div>
+      <div class="panel">
+        <h2>📦 변수 상자</h2>
+        <div class="vars" id="vars"></div>
+      </div>
+      <div class="panel">
+        <h2>🖥️ console.log 출력</h2>
+        <div class="console" id="console"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================= 데이터 50개 =================
+const RAW = [
+  ['사과','🍎',100],['배','🍐',1000],['귤','🍊',500],['바나나','🍌',300],['포도','🍇',2000],
+  ['딸기','🍓',1500],['수박','🍉',8000],['복숭아','🍑',1200],['체리','🍒',3000],['레몬','🍋',700],
+  ['망고','🥭',2500],['파인애플','🍍',4000],['키위','🥝',600],['코코넛','🥥',3500],['블루베리','🫐',2800],
+  ['토마토','🍅',400],['당근','🥕',300],['옥수수','🌽',800],['브로콜리','🥦',1500],['오이','🥒',500],
+  ['감자','🥔',400],['고구마','🍠',600],['양파','🧅',300],['마늘','🧄',200],['버섯','🍄',1000],
+  ['고추','🌶️',200],['아보카도','🥑',2200],['가지','🍆',700],['식빵','🍞',2500],['크루아상','🥐',1800],
+  ['치즈','🧀',4500],['달걀','🥚',300],['우유','🥛',2500],['햄버거','🍔',5500],['피자','🍕',12000],
+  ['핫도그','🌭',3000],['감자튀김','🍟',2000],['주먹밥','🍙',1500],['초밥','🍣',9000],['라면','🍜',1200],
+  ['경단','🍡',2000],['쿠키','🍪',1000],['도넛','🍩',1500],['케이크','🍰',4500],['초콜릿','🍫',1800],
+  ['사탕','🍬',500],['아이스크림','🍦',2000],['꿀','🍯',7000],['커피','☕',4000],['콜라','🥤',1500],
+];
+const DATA = RAW.map(([name, emoji, price], k) => ({ name, emoji, price, amount: k === 0 ? 5 : (k * 7) % 9 + 1 }));
+const N = DATA.length;
+const won = n => n.toLocaleString('ko-KR') + '원';
+const $ = id => document.getElementById(id);
+
+$('stars').innerHTML = Array.from({ length: 70 }, () =>
+  `<i style="left:${Math.random()*100}%;top:${Math.random()*100}%;animation-delay:${Math.random()*3}s"></i>`).join('');
+
+// ================= 코드 =================
+const CODE = [
+  '<span class="kw">let</span> data = [',
+  `  { name: <span class="str">"${DATA[0].name}"</span>, price: <span class="num">${DATA[0].price}</span>, amount: <span class="num">${DATA[0].amount}</span> },`,
+  `  { name: <span class="str">"${DATA[1].name}"</span>,   price: <span class="num">${DATA[1].price}</span>, amount: <span class="num">${DATA[1].amount}</span> },`,
+  '  <span class="cm">// ... 이렇게 총 50개</span>',
+  '];',
+  '<span class="kw">let</span> sum = <span class="num">0</span>;',
+  '<span class="kw">for</span> (<span class="kw">const</span> i <span class="kw">of</span> data) {',
+  '  <span class="kw">const</span> subtotal = i.price * i.amount;',
+  '  sum += subtotal;',
+  '}',
+  '<span class="fn">console.log</span>(sum);',
+];
+$('code').innerHTML = CODE.map((c, i) => `<div class="line"><span class="no">${i + 1}</span><span>${c}</span></div>`).join('');
+
+// ================= 단계 만들기 =================
+// 한 상품마다 4단계: 확인(②) → 꺼내기(③) → 곱하기(④) → 더하기(⑤)
+const steps = [];
+let st = { k: -1, done: -1, sum: undefined, sub: undefined, added: 0, out: [], scan: null };
+const push = (o) => steps.push({ ...st, out: [...st.out], ch: [], arrow: null, hint: '', ...o });
+
+push({ phase: 'intro', lines: [], node: null,
+  say: '마트에 상품 <b>50개</b>가 진열돼 있어요. 이걸 전부 장바구니에 담고 <b>총액</b>을 계산해 볼게요. <b>▶ 자동 재생</b>을 눌러 보세요!', calc: '' });
+push({ phase: 'data', lines: [0,1,2,3,4], node: null,
+  say: '<b>배열 data</b> = 진열대예요. 상품 하나하나가 <b>{ name, price, amount }</b> 정보를 가진 칸이고, 칸 번호는 <b>0번부터</b> 시작해요.', calc: `data.length → ${N}` });
+st.sum = 0;
+push({ phase: 'init', lines: [5], node: 'A', ch: ['sum'],
+  say: '총액을 담을 상자 <b>sum</b> 을 만들고 <b>0원</b>으로 시작해요. 계산대 금액을 0으로 리셋하는 것과 같아요.', calc: 'sum = 0' });
+
+DATA.forEach((it, k) => {
+  const slow = k < 3;
+  st.k = k; st.sub = undefined;
+  push({ phase: 'check', lines: [6], node: 'B', arrow: k === 0 ? 'AB' : 'EB',
+    say: `🤔 진열대에 아직 계산 안 한 상품이 있나? → <b>네! ${k}번 칸</b>이 남아 있어요.`, calc: `남은 상품: ${N - k}개`,
+    hint: k === 3 ? '🔁 패턴이 보이나요? ②→③→④→⑤ 를 <b>똑같이</b> 반복할 뿐이에요. 지금부터는 빠르게 돌립니다!' : '' });
+  st.scan = k;
+  push({ phase: 'pick', lines: [6], node: 'C', arrow: 'BC', ch: ['i'],
+    say: `🫴 <b>data[${k}]</b> 상품을 꺼내서 <b>i</b> 라는 상자에 잠깐 담아요. → ${it.emoji} <b>${it.name}</b>`,
+    calc: `i = data[${k}]  → { name: "${it.name}", price: ${it.price}, amount: ${it.amount} }`, slow });
+  st.sub = it.price * it.amount;
+  push({ phase: 'calc', lines: [7], node: 'D', arrow: 'CD', ch: ['sub'],
+    say: `🧮 <b>i.price</b>(${won(it.price)}) × <b>i.amount</b>(${it.amount}개) 를 곱해 이 상품의 금액을 구해요.`,
+    calc: `subtotal = ${it.price} × ${it.amount} = ${st.sub.toLocaleString()}`, slow });
+  const before = st.sum; st.sum += st.sub; st.added = k + 1; st.done = k;
+  push({ phase: 'add', lines: [8], node: 'E', arrow: 'DE', ch: ['sum'], flyIdx: k,
+    say: `➕ 장바구니 총액 <b>sum</b> 에 더해요. 그리고 다시 <b>②</b>로 돌아가 다음 상품을 확인해요.`,
+    calc: `sum = ${before.toLocaleString()} + ${st.sub.toLocaleString()} = ${st.sum.toLocaleString()}`, slow });
+});
+st.k = -1; st.scan = null;
+push({ phase: 'check', lines: [6, 9], node: 'B', arrow: 'EB',
+  say: '🤔 남은 상품이 있나? → <b>아니오!</b> 50개를 모두 계산했어요. 반복문을 빠져나갑니다.', calc: '남은 상품: 0개 → 반복 종료' });
+st.out.push(String(st.sum));
+push({ phase: 'end', lines: [10], node: 'F', arrow: 'BF', finale: true,
+  say: `🎉 최종 총액은 <b>${won(st.sum)}</b>! 코드는 고작 4줄인데, 반복문 덕분에 <b>50번</b>의 계산을 자동으로 해냈어요.`,
+  calc: `console.log(sum) → ${st.sum}` });
+
+// ================= 그리기 =================
+$('shelf').innerHTML = DATA.map((it, k) => `<div class="tile" title="${it.name} ${won(it.price)} × ${it.amount}"><span class="e">${it.emoji}</span><span class="n">${k}</span></div>`).join('');
+const tiles = $('shelf').children, lines = document.querySelectorAll('.line');
+let cur = 0, last = 0, timer = null;
+
+function render() {
+  const s = steps[cur], fwd = cur === last + 1, speedy = fwd && timer && !s.slow && s.k >= 3;
+
+  // 왼쪽: 진열대
+  for (let k = 0; k < N; k++) {
+    tiles[k].classList.toggle('now', k === s.k);
+    tiles[k].classList.toggle('done', k <= s.done && k !== s.k);
+  }
+  // 스캐너
+  if (s.scan === null) $('scanner').innerHTML = `<div class="big">${s.phase === 'end' ? '🧾' : '🛒'}</div><div class="info idle">${s.phase === 'end' ? '계산 완료! 영수증 출력 중…' : '계산 대기 중…'}</div>`;
+  else {
+    const it = DATA[s.scan], showSub = s.sub !== undefined;
+    $('scanner').innerHTML = `<div class="big ${fwd && s.phase === 'pick' ? 'pop' : ''}">${it.emoji}</div>
+      <div class="info"><div class="nm">[${s.scan}] ${it.name}</div>
+      <div class="eq"><span class="p">${won(it.price)}</span> × <span class="a">${it.amount}개</span>${showSub ? ` = <span class="s">${won(s.sub)}</span>` : ' = ?'}</div></div>`;
+  }
+  if (fwd && s.phase === 'calc') { const b = $('beam'); b.classList.remove('on'); void b.offsetWidth; b.classList.add('on'); }
+
+  // 장바구니 목록
+  const cl = $('cartlist');
+  if (s.added === 0) cl.innerHTML = '<div class="empty">아직 비어 있어요 🫙</div>';
+  else {
+    cl.innerHTML = DATA.slice(0, s.added).map((it, k) =>
+      `<div class="crow ${fwd && s.phase === 'add' && k === s.added - 1 ? 'new' : ''}"><span class="no">${k}</span><span>${it.emoji}</span>
+       <span class="calc">${it.name} ${won(it.price)} × ${it.amount}</span><span class="sub">${won(it.price * it.amount)}</span></div>`).join('');
+    cl.scrollTop = cl.scrollHeight;
+  }
+  $('cnt').textContent = s.added;
+  const tv = $('total');
+  tv.textContent = won(s.sum || 0);
+  tv.classList.remove('bump');
+  if (fwd && s.phase === 'add') { void tv.offsetWidth; tv.classList.add('bump'); }
+
+  // 오른쪽: 반복 카운터
+  const n = s.phase === 'end' || (s.phase === 'check' && s.k === -1) ? N : Math.max(0, s.k + 1);
+  $('loopn').textContent = n;
+  $('ringfg').style.strokeDashoffset = 263.9 * (1 - n / N);
+  $('say').innerHTML = `<div>${s.say}</div>` + (s.calc ? `<div class="calc">${s.calc}</div>` : '');
+  const h = $('hint');
+  if (s.hint) { h.innerHTML = s.hint; h.classList.add('on'); } else if (s.k < 3 || s.k === -1) h.classList.remove('on');
+
+  lines.forEach((l, i) => l.classList.toggle('active', s.lines.includes(i)));
+  document.querySelectorAll('.flow .node').forEach(g => g.classList.toggle('on', g.dataset.n === s.node));
+  document.querySelectorAll('.flow .arrow').forEach(a => {
+    const on = a.dataset.a === s.arrow;
+    a.classList.toggle('on', on);
+    a.setAttribute('marker-end', on ? 'url(#ahy)' : 'url(#ah)');
+  });
+
+  // 변수
+  const it = s.scan !== null ? DATA[s.scan] : null;
+  const iv = it && s.phase !== 'check' ? `{ ${it.emoji} ${it.name}, ${it.price}, ${it.amount} }` : (s.k >= 0 && s.phase === 'check' && s.k > 0 ? '(다음 상품 대기)' : undefined);
+  $('vars').innerHTML = [
+    ['i', iv],
+    ['subtotal', s.sub === undefined ? undefined : won(s.sub)],
+    ['sum', s.sum === undefined ? undefined : won(s.sum)],
+  ].map(([k, v]) => `<div class="var ${v === undefined ? 'empty' : ''} ${s.ch.includes(k === 'subtotal' ? 'sub' : k) ? 'ch' : ''}">
+     <div class="k">${k}</div><div class="v">${v === undefined ? '아직 없음' : v}</div></div>`).join('');
+  $('console').innerHTML = s.out.map(o => `<div>${o}</div>`).join('');
+
+  // 진행
+  $('bar').style.width = (cur / (steps.length - 1) * 100) + '%';
+  $('stepinfo').textContent = `단계 ${cur} / ${steps.length - 1}`;
+  $('prev').disabled = $('reset').disabled = cur === 0;
+  $('next').disabled = $('end').disabled = cur === steps.length - 1;
+
+  if (fwd && s.phase === 'add' && !speedy) fly(s.flyIdx);
+  if (fwd && s.finale) finale();
+  last = cur;
+}
+
+function fly(k) {
+  const a = tiles[k].getBoundingClientRect(), b = $('cartlist').getBoundingClientRect();
+  if (b.bottom < 0 || a.bottom < 0) return;
+  const f = document.createElement('div'); f.className = 'fly'; f.textContent = DATA[k].emoji;
+  f.style.left = a.left + 'px'; f.style.top = a.top + 'px';
+  document.body.appendChild(f);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    f.style.transform = `translate(${b.left + b.width / 2 - a.left}px, ${b.bottom - 30 - a.top}px) scale(.6)`; f.style.opacity = 0;
+  }));
+  setTimeout(() => f.remove(), 800);
+}
+function finale() {
+  const set = DATA.map(d => d.emoji).concat(['🎉', '✨', '💰', '🎊']);
+  for (let i = 0; i < 60; i++) {
+    const e = document.createElement('div'); e.className = 'emo'; e.textContent = set[Math.floor(Math.random() * set.length)];
+    e.style.left = Math.random() * 100 + 'vw'; e.style.animationDuration = 2 + Math.random() * 2.5 + 's'; e.style.animationDelay = Math.random() * .8 + 's';
+    document.body.appendChild(e); setTimeout(() => e.remove(), 5500);
+  }
+}
+
+// ================= 조작 =================
+function delayFor(s) {
+  let ms;
+  if (['intro', 'data', 'init', 'end'].includes(s.phase) || s.k === -1) ms = 2400;
+  else if (s.k < 3) ms = 2000;          // 처음 3개: 천천히 설명
+  else if (s.k === 3) ms = 1400;        // 힌트 보여주기
+  else if (s.k < 8) ms = 450;           // 점점 빠르게
+  else ms = 110;                        // 나머지: 휘리릭
+  return ms / Number($('speed').value);
+}
+function go(n) { cur = Math.max(0, Math.min(steps.length - 1, n)); render(); if (cur === steps.length - 1) stop(); }
+function tick() { go(cur + 1); if (timer) timer = setTimeout(tick, delayFor(steps[cur])); }
+function stop() { clearTimeout(timer); timer = null; $('play').textContent = '▶ 자동 재생'; }
+function play() {
+  if (cur === steps.length - 1) { cur = 0; last = 0; render(); }
+  $('play').textContent = '⏸ 멈춤'; timer = setTimeout(tick, cur === 0 ? 300 : delayFor(steps[cur]));
+}
+$('play').onclick = () => timer ? stop() : play();
+$('next').onclick = () => { stop(); go(cur + 1); };
+$('prev').onclick = () => { stop(); go(cur - 1); };
+$('reset').onclick = () => { stop(); last = 0; go(0); };
+$('end').onclick = () => { stop(); last = steps.length - 2; go(steps.length - 1); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { stop(); go(cur + 1); }
+  if (e.key === 'ArrowLeft') { stop(); go(cur - 1); }
+  if (e.key === ' ') { e.preventDefault(); timer ? stop() : play(); }
+});
+render();
+</script>
+</body>
+</html>

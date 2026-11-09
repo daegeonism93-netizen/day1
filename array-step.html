@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>배열 한 줄씩 실행</title>
+<style>
+  :root {
+    --bg: #f5f7fb; --panel: #ffffff; --text: #1f2430; --muted: #6b7280; --border: #e3e7ef;
+    --code-bg: #1e2433; --code-text: #d7deea; --code-dim: #6c7690;
+    --accent: #ff7a00; --accent-soft: #fff1e3; --hl: rgba(255,122,0,.25);
+    --cell: #eef1f7; --done: #d7f0de; --done-text: #1d6b35; --now: #ff7a00;
+    --green: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c; --panel: #1b1f29; --text: #e6e9ef; --muted: #9aa3b5; --border: #2c3242;
+      --code-bg: #0f121a; --accent-soft: #3a2a1a; --cell: #252b38; --done: #1d3a27; --done-text: #8fe0a8;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Malgun Gothic", "Pretendard", sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 16px; font-size: .95rem; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .panel h2 { font-size: .85rem; color: var(--muted); font-weight: 600; margin-bottom: 10px; letter-spacing: .02em; }
+
+  /* 코드 */
+  pre.code { background: var(--code-bg); color: var(--code-text); border-radius: 10px; padding: 12px 0; font-family: Consolas, "D2Coding", monospace; font-size: .9rem; overflow-x: auto; }
+  .line { display: flex; padding: 2px 12px; border-left: 4px solid transparent; transition: background .2s; white-space: pre; }
+  .line .no { color: var(--code-dim); width: 2em; flex: none; text-align: right; margin-right: 14px; user-select: none; }
+  .line.active { background: var(--hl); border-left-color: var(--now); }
+  .kw { color: #c792ea; } .num { color: #f78c6c; } .fn { color: #82aaff; } .cm { color: var(--code-dim); }
+
+  /* 설명 */
+  .explain { margin-top: 14px; background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; min-height: 72px; }
+  .explain b { color: var(--accent); }
+  .explain .calc { font-family: Consolas, monospace; font-size: 1.05rem; margin-top: 6px; }
+
+  /* 컨트롤 */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text); padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .4; cursor: default; }
+  .speed { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .9rem; }
+  .progress { flex-basis: 100%; height: 6px; background: var(--cell); border-radius: 3px; overflow: hidden; }
+  .progress div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .stepinfo { color: var(--muted); font-size: .85rem; }
+
+  /* 변수 */
+  .vars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .var { border: 1px solid var(--border); border-radius: 10px; padding: 10px; text-align: center; transition: transform .2s, border-color .2s; }
+  .var .name { font-family: Consolas, monospace; color: var(--muted); font-size: .85rem; }
+  .var .val { font-size: 1.6rem; font-weight: 700; font-family: Consolas, monospace; }
+  .var.changed { border-color: var(--accent); transform: scale(1.06); }
+  .var.empty .val { color: var(--muted); font-size: 1rem; padding: 8px 0; }
+
+  /* 배열 */
+  .arr { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; }
+  .cell { background: var(--cell); border-radius: 6px; text-align: center; padding: 4px 0 2px; transition: background .2s, transform .2s; }
+  .cell .v { font-weight: 700; font-size: .9rem; }
+  .cell .i { font-size: .62rem; color: var(--muted); }
+  .cell.done { background: var(--done); color: var(--done-text); }
+  .cell.now { background: var(--now); color: #fff; transform: scale(1.15); }
+  .cell.now .i { color: #fff; }
+  .legend { display: flex; gap: 14px; font-size: .8rem; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; background: var(--c); }
+
+  /* 콘솔 */
+  .console { background: var(--code-bg); color: #a6e3a1; font-family: Consolas, monospace; border-radius: 10px; padding: 10px 12px; min-height: 90px; font-size: .9rem; }
+  .console div::before { content: "> "; color: var(--code-dim); }
+  .console .new { animation: pop .4s; }
+  @keyframes pop { from { background: rgba(166,227,161,.25); } to { background: transparent; } }
+
+  .note { margin-top: 16px; border-left: 4px solid var(--accent); }
+  .note p + p { margin-top: 6px; }
+  code { font-family: Consolas, monospace; background: var(--cell); padding: 1px 5px; border-radius: 4px; }
+  .stack > * + * { margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧮 자바스크립트 배열 · 반복문 한 줄씩 실행해 보기</h1>
+  <p class="sub"><b>다음 ▶</b> 버튼을 누르거나 <b>자동 재생</b>을 켜서 코드가 한 줄씩 실행되는 모습을 확인하세요. (키보드 → ← 도 됩니다)</p>
+
+  <div class="grid">
+    <!-- 왼쪽: 코드 + 설명 + 컨트롤 -->
+    <div class="panel">
+      <h2>📜 실행 중인 코드</h2>
+      <pre class="code" id="code"></pre>
+      <div class="explain" id="explain"></div>
+      <div class="controls">
+        <button id="reset">⏮ 처음</button>
+        <button id="prev">◀ 이전</button>
+        <button id="next" class="primary">다음 ▶</button>
+        <button id="play">▶ 자동 재생</button>
+        <button id="skip">⏭ 반복 끝까지</button>
+        <label class="speed">속도 <input type="range" id="speed" min="1" max="10" value="5"></label>
+        <div class="progress"><div id="bar"></div></div>
+        <span class="stepinfo" id="stepinfo"></span>
+      </div>
+    </div>
+
+    <!-- 오른쪽: 변수 / 배열 / 콘솔 -->
+    <div class="stack">
+      <div class="panel">
+        <h2>📦 변수 (상자에 담긴 값)</h2>
+        <div class="vars" id="vars"></div>
+      </div>
+      <div class="panel">
+        <h2>🗂️ 배열 data — 위 숫자는 값, 아래 [ ] 숫자는 인덱스(번호표)</h2>
+        <div class="arr" id="arr"></div>
+        <div class="legend">
+          <span style="--c: var(--now)">지금 꺼낸 값</span>
+          <span style="--c: var(--done)">이미 더한 값</span>
+          <span style="--c: var(--cell)">아직 안 꺼낸 값</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>🖥️ console.log 출력</h2>
+        <div class="console" id="console"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel note">
+    <h2>💡 원래 코드에서 고친 곳</h2>
+    <p>원래 코드의 <code>sum+= datai</code> 는 <code>datai</code> 라는 변수가 없어서 <b>오류</b>가 납니다.
+       반복문에서 꺼낸 값은 <code>element</code> 에 들어 있으므로 <code>sum += element</code> 로 고쳐야 합니다.</p>
+    <p><code>sum</code> 이 0 이 아니라 <b>17</b> 에서 시작하므로 최종 결과는 1~100 의 합 5050 + 17 = <b>5067</b> 입니다.
+       1~100 의 합만 구하려면 반복문 전에 <code>sum = 0</code> 을 넣으세요.</p>
+  </div>
+</div>
+
+<script>
+// ---------- 코드 줄 정의 ----------
+const CODE = [
+  '<span class="kw">const</span> data = [<span class="num">1</span>, <span class="num">2</span>, <span class="num">3</span>, ..., <span class="num">100</span>];',
+  '<span class="fn">console.log</span>(data[<span class="num">0</span>]);',
+  '<span class="kw">let</span> sum = <span class="num">10</span>;',
+  'sum = sum + <span class="num">7</span>;   <span class="cm">// sum += 7</span>',
+  '<span class="fn">console.log</span>(sum);',
+  '<span class="kw">let</span> cnt = <span class="num">8</span>;',
+  'cnt = cnt + <span class="num">1</span>;   <span class="cm">// cnt += 1, cnt++</span>',
+  '<span class="kw">for</span> (<span class="kw">const</span> element <span class="kw">of</span> data) {',
+  '    sum += element;',
+  '}',
+  '<span class="fn">console.log</span>(sum);'
+];
+document.getElementById('code').innerHTML = CODE.map((c, i) =>
+  `<div class="line" data-l="${i}"><span class="no">${i + 1}</span><span>${c}</span></div>`).join('');
+
+// ---------- 실행 단계(스냅샷) 만들기 ----------
+const data = Array.from({ length: 100 }, (_, i) => i + 1);
+const steps = [];
+let st = { sum: undefined, cnt: undefined, element: undefined, out: [], idx: -1, doneUpTo: -1 };
+function push(line, text, calc, changed = []) {
+  steps.push({ ...st, out: [...st.out], line, text, calc, changed });
+}
+
+push(-1, '<b>시작 전</b>입니다. <b>다음 ▶</b> 을 눌러 첫 줄부터 실행해 보세요.', '');
+push(0, '<b>배열 data</b> 를 만듭니다. 1부터 100까지 숫자 100개가 한 줄로 늘어선 <b>번호 붙은 상자들</b>이에요. 번호(인덱스)는 <b>0부터</b> 시작합니다.', 'data.length → 100');
+st.idx = 0; st.out.push('1');
+push(1, '<code>data[0]</code> 은 <b>0번 상자</b>의 값입니다. 첫 번째 값은 1번이 아니라 <b>0번</b>에 있어요! 대괄호 안 숫자를 바꾸면 다른 상자를 꺼냅니다. (예: data[9] → 10)', 'data[0] → 1');
+st.idx = -1; st.sum = 10;
+push(2, '변수 <b>sum</b> 을 만들고 10 을 넣습니다.', 'sum = 10', ['sum']);
+st.sum = 17;
+push(3, '오른쪽을 먼저 계산한 뒤 왼쪽 sum 에 다시 넣습니다. <code>sum += 7</code> 과 같은 뜻이에요.', 'sum = 10 + 7 → 17', ['sum']);
+st.out.push('17');
+push(4, 'sum 의 현재 값을 콘솔에 출력합니다.', 'console.log(17)');
+st.cnt = 8;
+push(5, '변수 <b>cnt</b> 를 만들고 8 을 넣습니다.', 'cnt = 8', ['cnt']);
+st.cnt = 9;
+push(6, 'cnt 에 1 을 더합니다. <code>cnt += 1</code>, <code>cnt++</code> 모두 같은 뜻이에요. (cnt 는 이후에 쓰이지 않습니다)', 'cnt = 8 + 1 → 9', ['cnt']);
+
+data.forEach((v, i) => {
+  st.element = v; st.idx = i;
+  push(7, `반복 <b>${i + 1}회차</b>: data 의 <b>${i}번 상자</b>에서 값 <b>${v}</b> 를 꺼내 <code>element</code> 에 담습니다.`, `element = data[${i}] → ${v}`, ['element']);
+  const before = st.sum; st.sum += v; st.doneUpTo = i;
+  push(8, `꺼낸 값을 sum 에 <b>누적</b>합니다. (sum = sum + element)`, `sum = ${before} + ${v} → ${st.sum}`, ['sum']);
+});
+st.idx = -1;
+push(9, '<b>100개를 모두 꺼냈으므로</b> 반복문을 빠져나옵니다.', `반복 횟수: 100 회`);
+st.out.push(String(st.sum));
+push(10, `최종 누적된 sum 을 출력합니다. 시작값 17 + (1~100 의 합 5050) = <b>${st.sum}</b> 🎉`, `console.log(${st.sum})`);
+
+// ---------- 화면 그리기 ----------
+const arrEl = document.getElementById('arr');
+arrEl.innerHTML = data.map((v, i) => `<div class="cell"><div class="v">${v}</div><div class="i">[${i}]</div></div>`).join('');
+const cells = arrEl.children;
+const lines = document.querySelectorAll('.line');
+let cur = 0, prevOutLen = 0;
+
+function render() {
+  const s = steps[cur];
+  lines.forEach((l, i) => l.classList.toggle('active', i === s.line));
+  const act = document.querySelector('.line.active');
+  if (act) act.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+  document.getElementById('explain').innerHTML =
+    `<div>${s.text}</div>` + (s.calc ? `<div class="calc">${s.calc}</div>` : '');
+
+  document.getElementById('vars').innerHTML = ['sum', 'cnt', 'element'].map(n => {
+    const v = s[n];
+    return `<div class="var ${v === undefined ? 'empty' : ''} ${s.changed.includes(n) ? 'changed' : ''}">
+      <div class="name">${n}</div><div class="val">${v === undefined ? '아직 없음' : v}</div></div>`;
+  }).join('');
+
+  for (let i = 0; i < cells.length; i++) {
+    cells[i].classList.toggle('now', i === s.idx);
+    cells[i].classList.toggle('done', i <= s.doneUpTo && i !== s.idx);
+  }
+
+  const con = document.getElementById('console');
+  con.innerHTML = s.out.map((o, i) => `<div class="${i >= prevOutLen && s.out.length > prevOutLen ? 'new' : ''}">${o}</div>`).join('');
+  prevOutLen = s.out.length;
+
+  document.getElementById('bar').style.width = (cur / (steps.length - 1) * 100) + '%';
+  document.getElementById('stepinfo').textContent = `단계 ${cur} / ${steps.length - 1}`;
+  document.getElementById('prev').disabled = cur === 0;
+  document.getElementById('reset').disabled = cur === 0;
+  document.getElementById('next').disabled = cur === steps.length - 1;
+  document.getElementById('skip').disabled = !(s.line === 7 || s.line === 8) ;
+}
+
+function go(n) { cur = Math.max(0, Math.min(steps.length - 1, n)); render(); if (cur === steps.length - 1) stop(); }
+
+// ---------- 자동 재생 ----------
+let timer = null;
+const playBtn = document.getElementById('play');
+function delay() { return 1600 - document.getElementById('speed').value * 150; }
+function tick() { go(cur + 1); if (timer) timer = setTimeout(tick, delay()); }
+function stop() { clearTimeout(timer); timer = null; playBtn.textContent = '▶ 자동 재생'; }
+function play() {
+  if (cur === steps.length - 1) go(0);
+  playBtn.textContent = '⏸ 멈춤'; timer = setTimeout(tick, delay());
+}
+playBtn.onclick = () => timer ? stop() : play();
+document.getElementById('next').onclick = () => { stop(); go(cur + 1); };
+document.getElementById('prev').onclick = () => { stop(); go(cur - 1); };
+document.getElementById('reset').onclick = () => { stop(); go(0); };
+document.getElementById('skip').onclick = () => { stop(); go(steps.findIndex(s => s.line === 9)); };
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight') { stop(); go(cur + 1); }
+  if (e.key === 'ArrowLeft') { stop(); go(cur - 1); }
+});
+render();
+</script>
+</body>
+</html>
